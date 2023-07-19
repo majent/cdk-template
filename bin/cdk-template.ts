@@ -1,21 +1,58 @@
 #!/usr/bin/env node
 import 'source-map-support/register';
 import * as cdk from 'aws-cdk-lib';
-import { CdkTemplateStack } from '../lib/cdk-template-stack';
+import { Tags } from 'aws-cdk-lib';
+import { Context } from '../props/context';
+import { PropsMap } from '../props/accountProps';
+import { NetworkStack } from '../lib/network-stack';
+import { DatabaseStack } from '../lib/database-stack';
 
 const app = new cdk.App();
-new CdkTemplateStack(app, 'CdkTemplateStack', {
-  /* If you don't specify 'env', this stack will be environment-agnostic.
-   * Account/Region-dependent features and context lookups will not work,
-   * but a single synthesized template can be deployed anywhere. */
 
-  /* Uncomment the next line to specialize this stack for the AWS Account
-   * and Region that are implied by the current CLI configuration. */
-  // env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
+// props
+const env = app.node.tryGetContext('env');
+const context: Context = app.node.tryGetContext(env);
+const accountProps = PropsMap[context.account];
+const apiDomain = `${context.environmentNamePrefix}api-${accountProps.route53ZoneName}`;
+const webDomain = `${context.environmentNamePrefix}${accountProps.route53ZoneName}`;
 
-  /* Uncomment the next line if you know exactly what Account and Region you
-   * want to deploy the stack to. */
-  // env: { account: '123456789012', region: 'us-east-1' },
+console.log(`account: ${context.account}`);
+console.log(`stage: ${context.stage}`);
+console.log(`environmentName: ${context.environmentName}`);
+console.log(`environmentNamePrefix: ${context.environmentNamePrefix}`);
+console.log(`apiDomain: ${apiDomain}`);
+console.log(`webDomain: ${webDomain}`);
 
-  /* For more information, see https://docs.aws.amazon.com/cdk/latest/guide/environments.html */
-});
+//tags
+Tags.of(app).add('account', context.account); // prd, dev
+Tags.of(app).add('stage', context.stage); // prd, stg, dev
+Tags.of(app).add('environment', context.environmentName); // prd, dev-1, dev-2
+Tags.of(app).add('service', context.serviceName);
+
+// create stacks
+const networkStack = new NetworkStack(
+  app,
+  `${context.environmentNamePrefix}${context.serviceName}-network-stack`,
+  {
+    env: {
+      region: context.region,
+      account: accountProps.accountId,
+    },
+    ...context,
+    accountProps,
+  }
+);
+
+const databaseStack = new DatabaseStack(
+  app,
+  `${context.environmentNamePrefix}${context.serviceName}-database-stack`,
+  {
+    env: {
+      region: context.region,
+      account: accountProps.accountId,
+    },
+    ...context,
+    accountProps,
+    vpc: networkStack.vpc,
+  }
+);
